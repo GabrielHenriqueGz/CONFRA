@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CONFRA CRISTAIS STRIKE</title>
+<style>
+  * { box-sizing: border-box; }
+  :root { --primaria: #de9b35; --primaria-escura: #b87a1f; --primaria-clara: #fbf1e2; }
+  body { font-family: system-ui, sans-serif; background: var(--primaria-clara); color: #222; margin: 0; padding: 16px; }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { margin: 0 0 16px; padding: 16px; background: var(--primaria); color: #1f1608; border-radius: 8px; letter-spacing: .5px; }
+  section { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border-top: 4px solid var(--primaria); }
+  h2 { margin-top: 0; font-size: 1.15rem; color: var(--primaria-escura); }
+  input:focus, select:focus { outline: 2px solid var(--primaria); border-color: var(--primaria); }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  input, select, button { padding: 8px 10px; font-size: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+  input, select { flex: 1; min-width: 120px; }
+  button { background: var(--primaria); color: #1f1608; font-weight: 600; border: none; cursor: pointer; }
+  button:hover { background: var(--primaria-escura); color: #fff; }
+  button.sec { background: #888; }
+  button.small { padding: 4px 8px; font-size: .85rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  td.num, th.num { text-align: right; }
+  td.acoes { text-align: right; white-space: nowrap; }
+  .pos { color: #1a7f37; } .neg { color: #b5442d; }
+  .vazio { color: #888; font-style: italic; }
+  ul.transf { padding-left: 20px; } ul.transf li { margin: 4px 0; }
+  .resumo { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 12px; }
+  .resumo div { font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🔥 CONFRA CRISTAIS STRIKE</h1>
+
+  <section>
+    <h2>Participantes</h2>
+    <form id="formParticipante">
+      <input type="hidden" id="participanteId">
+      <input id="participanteNome" placeholder="Nome do participante" required>
+      <button type="submit" id="btnParticipante">Adicionar</button>
+      <button type="button" class="sec" id="cancelarParticipante" hidden>Cancelar</button>
+    </form>
+    <table><tbody id="listaParticipantes"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Gastos</h2>
+    <form id="formGasto">
+      <input type="hidden" id="gastoId">
+      <select id="gastoParticipante" required></select>
+      <input id="gastoDescricao" placeholder="Descrição (ex: Carne)" required>
+      <input id="gastoValor" type="number" step="0.01" min="0.01" placeholder="Valor (R$)" required>
+      <button type="submit" id="btnGasto">Adicionar</button>
+      <button type="button" class="sec" id="cancelarGasto" hidden>Cancelar</button>
+    </form>
+    <table>
+      <thead><tr><th>Participante</th><th>Descrição</th><th class="num">Valor</th><th></th></tr></thead>
+      <tbody id="listaGastos"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Distribuir despesas</h2>
+    <button id="btnDistribuir">Distribuir despesas</button>
+    <div id="resultado" style="margin-top:16px"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const brl = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let state = { participantes: [], gastos: [] };
+
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    alert(e.erro || 'Erro na requisição');
+    throw new Error(e.erro);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function carregar() {
+  state = await api('GET', '/api');
+  render();
+}
+
+const nomeDe = (id) => (state.participantes.find((p) => p.id === id) || {}).nome || '?';
+
+function render() {
+  // Participantes
+  $('listaParticipantes').innerHTML = state.participantes.length
+    ? state.participantes.map((p) => `
+        <tr><td>${esc(p.nome)}</td><td class="acoes">
+          <button class="small sec" onclick="editarParticipante('${p.id}')">Editar</button>
+          <button class="small" onclick="excluirParticipante('${p.id}')">Excluir</button>
+        </td></tr>`).join('')
+    : '<tr><td class="vazio">Nenhum participante cadastrado.</td></tr>';
+
+  // Select de participantes no form de gastos
+  const atual = $('gastoParticipante').value;
+  $('gastoParticipante').innerHTML = '<option value="">Quem pagou?</option>' +
+    state.participantes.map((p) => `<option value="${p.id}">${esc(p.nome)}</option>`).join('');
+  $('gastoParticipante').value = atual;
+
+  // Gastos
+  $('listaGastos').innerHTML = state.gastos.length
+    ? state.gastos.map((g) => `
+        <tr><td>${esc(nomeDe(g.participanteId))}</td><td>${esc(g.descricao)}</td>
+        <td class="num">${brl(g.valor)}</td><td class="acoes">
+          <button class="small sec" onclick="editarGasto('${g.id}')">Editar</button>
+          <button class="small" onclick="excluirGasto('${g.id}')">Excluir</button>
+        </td></tr>`).join('')
+    : '<tr><td colspan="4" class="vazio">Nenhum gasto cadastrado.</td></tr>';
+
+  $('resultado').innerHTML = '';
+}
+
+// ---------- CRUD Participantes ----------
+$('formParticipante').onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $('participanteId').value;
+  const nome = $('participanteNome').value;
+  if (id) await api('PUT', `/api/participantes/${id}`, { nome });
+  else await api('POST', '/api/participantes', { nome });
+  resetParticipante();
+  carregar();
+};
+function editarParticipante(id) {
+  const p = state.participantes.find((x) => x.id === id);
+  $('participanteId').value = p.id;
+  $('participanteNome').value = p.nome;
+  $('btnParticipante').textContent = 'Salvar';
+  $('cancelarParticipante').hidden = false;
+  $('participanteNome').focus();
+}
+function resetParticipante() {
+  $('formParticipante').reset();
+  $('participanteId').value = '';
+  $('btnParticipante').textContent = 'Adicionar';
+  $('cancelarParticipante').hidden = true;
+}
+$('cancelarParticipante').onclick = resetParticipante;
+async function excluirParticipante(id) {
+  const qtd = state.gastos.filter((g) => g.participanteId === id).length;
+  const msg = `Excluir ${nomeDe(id)}?` + (qtd ? ` Os ${qtd} gasto(s) dele também serão removidos.` : '');
+  if (!confirm(msg)) return;
+  await api('DELETE', `/api/participantes/${id}`);
+  carregar();
+}
+
+// ---------- CRUD Gastos ----------
+$('formGasto').onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $('gastoId').value;
+  const body = {
+    participanteId: $('gastoParticipante').value,
+    descricao: $('gastoDescricao').value,
+    valor: parseFloat($('gastoValor').value),
+  };
+  if (id) await api('PUT', `/api/gastos/${id}`, body);
+  else await api('POST', '/api/gastos', body);
+  resetGasto();
+  carregar();
+};
+function editarGasto(id) {
+  const g = state.gastos.find((x) => x.id === id);
+  $('gastoId').value = g.id;
+  $('gastoParticipante').value = g.participanteId;
+  $('gastoDescricao').value = g.descricao;
+  $('gastoValor').value = g.valor;
+  $('btnGasto').textContent = 'Salvar';
+  $('cancelarGasto').hidden = false;
+}
+function resetGasto() {
+  $('formGasto').reset();
+  $('gastoId').value = '';
+  $('btnGasto').textContent = 'Adicionar';
+  $('cancelarGasto').hidden = true;
+}
+$('cancelarGasto').onclick = resetGasto;
+async function excluirGasto(id) {
+  if (!confirm('Excluir este gasto?')) return;
+  await api('DELETE', `/api/gastos/${id}`);
+  carregar();
+}
+
+// ---------- Distribuir despesas ----------
+// Trabalha em centavos (inteiros) para evitar erros de arredondamento.
+function distribuir(participantes, gastos) {
+  const n = participantes.length;
+  const totalC = gastos.reduce((s, g) => s + Math.round(g.valor * 100), 0);
+  const baseC = Math.floor(totalC / n);
+  const sobra = totalC - baseC * n; // centavos que não dividem igualmente
+
+  const saldos = participantes.map((p, i) => {
+    const pagoC = gastos.filter((g) => g.participanteId === p.id)
+      .reduce((s, g) => s + Math.round(g.valor * 100), 0);
+    const cotaC = baseC + (i < sobra ? 1 : 0);
+    return { id: p.id, nome: p.nome, pagoC, cotaC, saldoC: pagoC - cotaC };
+  });
+
+  // Algoritmo guloso: maior devedor paga ao maior credor, repetindo.
+  const devedores = saldos.filter((s) => s.saldoC < 0).map((s) => ({ ...s, resto: -s.saldoC }));
+  const credores = saldos.filter((s) => s.saldoC > 0).map((s) => ({ ...s, resto: s.saldoC }));
+  devedores.sort((a, b) => b.resto - a.resto);
+  credores.sort((a, b) => b.resto - a.resto);
+
+  const transferencias = [];
+  let i = 0, j = 0;
+  while (i < devedores.length && j < credores.length) {
+    const valor = Math.min(devedores[i].resto, credores[j].resto);
+    transferencias.push({ de: devedores[i].nome, para: credores[j].nome, valorC: valor });
+    devedores[i].resto -= valor;
+    credores[j].resto -= valor;
+    if (devedores[i].resto === 0) i++;
+    if (credores[j].resto === 0) j++;
+  }
+  return { totalC, saldos, transferencias };
+}
+
+$('btnDistribuir').onclick = () => {
+  if (!state.participantes.length) {
+    $('resultado').innerHTML = '<p class="vazio">Cadastre ao menos um participante.</p>';
+    return;
+  }
+  const { totalC, saldos, transferencias } = distribuir(state.participantes, state.gastos);
+  const c = (v) => brl(v / 100);
+
+  $('resultado').innerHTML = `
+    <div class="resumo">
+      <div><strong>Total gasto:</strong> ${c(totalC)}</div>
+      <div><strong>Participantes:</strong> ${saldos.length}</div>
+      <div><strong>Valor por pessoa:</strong> ${c(totalC / saldos.length)}</div>
+    </div>
+    <table>
+      <thead><tr><th>Participante</th><th class="num">Pagou</th><th class="num">Cota</th><th class="num">Saldo</th></tr></thead>
+      <tbody>${saldos.map((s) => `
+        <tr><td>${esc(s.nome)}</td><td class="num">${c(s.pagoC)}</td><td class="num">${c(s.cotaC)}</td>
+        <td class="num ${s.saldoC > 0 ? 'pos' : s.saldoC < 0 ? 'neg' : ''}">
+          ${s.saldoC > 0 ? 'recebe ' + c(s.saldoC) : s.saldoC < 0 ? 'paga ' + c(-s.saldoC) : 'quite'}
+        </td></tr>`).join('')}
+      </tbody>
+    </table>
+    <h3>Transferências</h3>
+    ${transferencias.length
+      ? '<ul class="transf">' + transferencias.map((t) =>
+          `<li><strong>${esc(t.de)}</strong> deve transferir <strong>${c(t.valorC)}</strong> para <strong>${esc(t.para)}</strong></li>`).join('') + '</ul>'
+      : '<p class="vazio">Ninguém precisa transferir nada.</p>'}
+  `;
+};
+
+carregar();
+</script>
+</body>
+</html>
